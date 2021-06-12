@@ -3,3 +3,7 @@
 ################################################################################
 
 /VotingContract/VotingContract/bin/Debug/netcoreapp3.1
+/VotingContract/VotingContract/obj
+/VotingContract/VotingContract.Tests/bin/Debug/netcoreapp3.1
+/VotingContract/VotingContract.Tests/obj
+/VotingContract/.vs/VotingContract
