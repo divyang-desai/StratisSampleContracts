@@ -1,1 +1,1 @@
-# StratisSampleContracts
+# Stratis Sample Contracts
