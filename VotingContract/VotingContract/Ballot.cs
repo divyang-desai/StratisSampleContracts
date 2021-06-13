@@ -2,134 +2,102 @@
 
 public class Ballot : SmartContract
 {
-    public Ballot(ISmartContractState smartContractState)
+    public Ballot(ISmartContractState smartContractState, byte[] proposalNames)
     : base(smartContractState)
     {
         ChairPerson = Message.Sender;
-    }
+        var names = Serializer.ToArray<Proposal>(proposalNames);
 
+        ValidateProposalNamesAndAssign(names);
+    }
     public Address ChairPerson
     {
         get => PersistentState.GetAddress(nameof(ChairPerson));
         private set => PersistentState.SetAddress(nameof(ChairPerson), value);
     }
-
-    public uint[] AllCandidates
+    public Proposal[] Proposals
     {
-        get => PersistentState.GetArray<uint>(nameof(AllCandidates));
-        private set => PersistentState.SetArray(nameof(AllCandidates), value);
+        get => PersistentState.GetArray<Proposal>(nameof(Proposals));
+        private set => PersistentState.SetArray(nameof(Proposals), value);
     }
-
-    private void SetCandidateName(uint candidateId, string candidateName)
+    private void ValidateProposalNamesAndAssign(Proposal[] proposals)
     {
-        PersistentState.SetString($"{candidateId}", candidateName);
+        Assert(proposals.Length > 1, "Please provide at least 2 proposals");
 
-        if (AllCandidates.Length > 0)
-        {
-            AllCandidates[AllCandidates.Length - 1] = candidateId;
-        }
-        else
-        {           
-            AllCandidates[0] = candidateId;
-        }
+        //TODO: check if proposal is not null or empty;
+
+        this.Proposals = proposals;
     }
-
-    private string GetCandidateName(uint candidateId)
-    {
-        return PersistentState.GetString($"{candidateId}");
-    }
-
-    private void SetCandidateVoteCount(uint candidateId, uint voteCount)
-    {
-        PersistentState.SetUInt32($"{candidateId}", voteCount);
-    }
-
-    private uint GetCandidateVoteCount(uint candidateId)
-    {
-        return PersistentState.GetUInt32($"{candidateId}");
-    }
-
-    private void SetVote(Address voter, bool vote)
-    {
-        PersistentState.SetBool($"{voter}:vote", vote);
-    }
-
-    private bool IsVoted(Address voter)
-    {
-        return PersistentState.GetBool($"{voter}:vote");
-    }
-
-    private void ProvideVotingRight(Address voterAddress)
-    {
-        PersistentState.SetBool($"{voterAddress}", true);
-    }
-
-    private bool CheckVotingRight(Address voterAddress)
-    {
-        return PersistentState.GetBool($"{voterAddress}");
-    }
-
-    public bool EnrollCandidate(uint candidateId, string candidateName)
-    {
-        Assert(Message.Sender == ChairPerson, "Only chairperson can enroll candidates.");
-
-        Assert(string.IsNullOrEmpty(GetCandidateName(candidateId)), "candidate is already enrolled.");
-
-        SetCandidateName(candidateId, candidateName);
-
-        SetCandidateVoteCount(candidateId, 0);
-
-        return true;
-    }
-
-    public bool GiveRightToVote(Address voter)
+    private Voter GetVoter(Address address) => PersistentState.GetStruct<Voter>($"voter:{address}");
+    private void SetVoter(Address address, Voter voter) => PersistentState.SetStruct($"voter:{address}", voter);
+    public bool GiveRightToVote(Address voterAddress)
     {
         Assert(Message.Sender == ChairPerson, "Only chairperson can give right to vote.");
 
-        Assert(!CheckVotingRight(voter), "The voter already have voting rights.");
+        var voter = this.GetVoter(voterAddress);
 
-        Assert(!IsVoted(Message.Sender), "Already voted.");
+        Assert(voter.Weight == 0, "The voter already have voting rights.");
 
-        ProvideVotingRight(voter);
+        Assert(!voter.Voted, "Already voted.");
+
+        voter.Weight = 1;
+
+        this.SetVoter(voterAddress, voter);
 
         return true;
-
     }
-
-    public void Vote(uint candidateId)
+    public bool Vote(uint proposalId)
     {
-        Assert(string.IsNullOrEmpty(GetCandidateName(candidateId)), "candidate id is not present.");
+        var voter = this.GetVoter(Message.Sender);
 
-        Assert(!CheckVotingRight(Message.Sender), "Has no right to vote.");
+        //TODO: check if proposal id is not present
 
-        Assert(IsVoted(Message.Sender), "Already voted.");
+        Assert(voter.Weight == 1, "Has no right to vote.");
 
-        var totalVotesForCandidate = GetCandidateVoteCount(candidateId);
-        SetCandidateVoteCount(candidateId, totalVotesForCandidate + 1);
+        Assert(!voter.Voted, "Already voted.");
 
-        SetVote(Message.Sender, true);
+        voter.Voted = true;
+        voter.VoteProposalIndex = proposalId;
+
+        Proposals[proposalId].VoteCount += voter.Weight;
+
+        //TODO: add event
+
+        return true;
     }
-
-    public void End()
+    public uint WinningProposal()
     {
-        Assert(Message.Sender == ChairPerson, "Only chairperson can end the election.");
+        uint winningVoteCount = 0;
+        uint winningProposalId = 0;
 
-        for (uint i = 0; i < AllCandidates.Length; i++)
+        for (uint i = 0; i < Proposals.Length; i++)
         {
-            var name = GetCandidateName(AllCandidates[i]);
-            var voteCount = GetCandidateVoteCount(AllCandidates[i]);
-
-            Log(new ElectionResult
+            if(Proposals[i].VoteCount > winningVoteCount)
             {
-                CandidateId = i,
-                CandidateName = name,
-                VoteCount = voteCount
-            });
+                winningVoteCount = Proposals[i].VoteCount;
+                winningProposalId = i;
+            }
         }
 
-        //TODO: end election
+        return winningProposalId;
     }
-
+    public string WinnerName()
+    {
+        var winningProposalId = WinningProposal();
+        var proposals = Proposals[winningProposalId];
+        return proposals.Name;
+    }
+    public struct Proposal
+    {
+        public string Name;
+        public uint VoteCount;        
+    }
+    public struct Voter
+    {
+        public uint Weight;
+        public bool Voted;
+        public uint VoteProposalIndex;
+    }
     struct ElectionResult
     {
         [Index]
