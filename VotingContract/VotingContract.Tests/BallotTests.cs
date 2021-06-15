@@ -24,8 +24,6 @@ namespace VotingContract.Tests
         private Address voter1;
         private Address voter2;
         private Address voter3;
-        private Address voter4;
-        private Address voter5;
 
         public BallotTests()
         {
@@ -50,11 +48,9 @@ namespace VotingContract.Tests
             this.voter1 = "0x0000000000000000000000000000000000000010".HexToAddress();
             this.voter2 = "0x0000000000000000000000000000000000000020".HexToAddress();
             this.voter3 = "0x0000000000000000000000000000000000000030".HexToAddress();
-            this.voter4 = "0x0000000000000000000000000000000000000040".HexToAddress();
-            this.voter5 = "0x0000000000000000000000000000000000000050".HexToAddress();
         }
 
-        public (Ballot, Proposal[]) CreateContract(Address senderAddress)
+        public (Ballot, Proposal[]) CreateContract()
         {
             var proposals = new[]
            {
@@ -62,7 +58,7 @@ namespace VotingContract.Tests
                 new Proposal { Name = "Donald Trump",  VoteCount = 0 }
             };
 
-            this.mockContractState.Setup(m => m.Message).Returns(new Message(this.contract, senderAddress, 0));
+            this.mockContractState.Setup(m => m.Message).Returns(new Message(this.contract, this.chairPerson, 0));
             this.mockPersistentState.Setup(s => s.GetArray<Proposal>(nameof(Ballot.Proposals))).Returns(proposals);
 
             var contract = new Ballot(this.mockContractState.Object, this.serializer.Serialize(proposals));
@@ -81,7 +77,7 @@ namespace VotingContract.Tests
         [Fact]
         public void Constructor_ValidProposals_Success()
         {
-            var (contract, proposals) = this.CreateContract(this.chairPerson);
+            var (contract, proposals) = this.CreateContract();
 
             Assert.Equal(proposals, contract.Proposals);
             this.mockPersistentState.Verify(s => s.SetArray(nameof(Ballot.Proposals), proposals), Times.Once);
@@ -91,9 +87,9 @@ namespace VotingContract.Tests
         public void GiveRightToVote_Success()
         {
             this.mockPersistentState.Setup(s => s.GetAddress(nameof(Ballot.ChairPerson))).Returns(this.chairPerson);
-            this.mockPersistentState.Setup(s => s.GetStruct<Voter>(this.voter1.ToString())).Returns(new Voter());
+            this.mockPersistentState.Setup(s => s.GetStruct<Voter>($"voter:{this.voter1}")).Returns(default(Voter));
 
-            var (contract, proposals) = this.CreateContract(this.chairPerson);
+            var (contract, proposals) = this.CreateContract();
             var result = contract.GiveRightToVote(this.voter1);
 
             Assert.True(result);
@@ -103,12 +99,74 @@ namespace VotingContract.Tests
         public void Vote1_Vote_Success()
         {
             this.mockPersistentState.Setup(s => s.GetStruct<Voter>($"voter:{this.voter1}")).Returns(this.NewVoter());
+
+            var (contract, proposals) = this.CreateContract();
+
             this.mockContractState.Setup(s => s.Message.Sender).Returns(this.voter1);
 
-            var (contract, proposals) = this.CreateContract(this.voter1);
             var result = contract.Vote(0);
 
             Assert.True(result);
+        }
+
+        [Fact]
+        public void WinningProposal_Success()
+        {
+            uint proposalIndexForVoter1 = 0;
+            uint proposalIndexForVoter2 = 0;
+            uint proposalIndexForVoter3 = 1;
+
+            var (contract, proposals) = this.CreateContract();
+
+            // voter 1 voting
+            this.mockPersistentState.Setup(s => s.GetStruct<Voter>($"voter:{this.voter1}")).Returns(this.NewVoter());
+            this.mockContractState.Setup(s => s.Message.Sender).Returns(this.voter1);
+            var voter1Result = contract.Vote(proposalIndexForVoter1);
+
+            // voter 2 voting
+            this.mockPersistentState.Setup(s => s.GetStruct<Voter>($"voter:{this.voter2}")).Returns(this.NewVoter());
+            this.mockContractState.Setup(s => s.Message.Sender).Returns(this.voter2);
+            var voter2Result = contract.Vote(proposalIndexForVoter2);
+
+            // voter 3 voting
+            this.mockPersistentState.Setup(s => s.GetStruct<Voter>($"voter:{this.voter3}")).Returns(this.NewVoter());
+            this.mockContractState.Setup(s => s.Message.Sender).Returns(this.voter3);
+            var voter3Result = contract.Vote(proposalIndexForVoter3);
+
+            var winnerProposalId = contract.WinningProposal();
+
+            Assert.Equal(winnerProposalId, proposalIndexForVoter1);
+            Assert.Equal(winnerProposalId, proposalIndexForVoter2);
+        }
+
+        [Fact]
+        public void WinnerName_Success()
+        {
+            uint proposalIndexForVoter1 = 0;
+            uint proposalIndexForVoter2 = 0;
+            uint proposalIndexForVoter3 = 1;
+
+            var (contract, proposals) = this.CreateContract();
+
+            // voter 1 voting
+            this.mockPersistentState.Setup(s => s.GetStruct<Voter>($"voter:{this.voter1}")).Returns(this.NewVoter());
+            this.mockContractState.Setup(s => s.Message.Sender).Returns(this.voter1);
+            var voter1Result = contract.Vote(proposalIndexForVoter1);
+
+            // voter 2 voting
+            this.mockPersistentState.Setup(s => s.GetStruct<Voter>($"voter:{this.voter2}")).Returns(this.NewVoter());
+            this.mockContractState.Setup(s => s.Message.Sender).Returns(this.voter2);
+            var voter2Result = contract.Vote(proposalIndexForVoter2);
+
+            // voter 3 voting
+            this.mockPersistentState.Setup(s => s.GetStruct<Voter>($"voter:{this.voter3}")).Returns(this.NewVoter());
+            this.mockContractState.Setup(s => s.Message.Sender).Returns(this.voter3);
+            var voter3Result = contract.Vote(proposalIndexForVoter3);
+
+            var winnerProposalName = contract.WinnerName();
+
+            Assert.NotNull(winnerProposalName);
+            Assert.Equal(winnerProposalName, proposals[proposalIndexForVoter1].Name);
         }
     }
 }

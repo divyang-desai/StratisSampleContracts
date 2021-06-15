@@ -1,7 +1,17 @@
 ﻿using Stratis.SmartContracts;
 
+/// <summary>
+/// Implements voting process
+/// </summary>
+
+[Deploy]
 public class Ballot : SmartContract
 {
+    /// <summary>
+    /// Constructor to create new ballot contract.
+    /// </summary>
+    /// <param name="smartContractState">The smart contract state.</param>
+    /// <param name="proposalNames">List of proposals.</param>
     public Ballot(ISmartContractState smartContractState, byte[] proposalNames)
     : base(smartContractState)
     {
@@ -10,26 +20,54 @@ public class Ballot : SmartContract
 
         ValidateProposalNamesAndAssign(names);
     }
+
+    /// <summary>
+    /// The contract owner wallet address.
+    /// </summary>
     public Address ChairPerson
     {
         get => PersistentState.GetAddress(nameof(ChairPerson));
         private set => PersistentState.SetAddress(nameof(ChairPerson), value);
     }
+
+    /// <summary>
+    /// List of proposals.
+    /// </summary>
     public Proposal[] Proposals
     {
         get => PersistentState.GetArray<Proposal>(nameof(Proposals));
         private set => PersistentState.SetArray(nameof(Proposals), value);
     }
+    
+    /// <summary>
+    /// Validation for the list of proposals pass during the contract deployment.
+    /// </summary>
+    /// <param name="proposals"></param>
     private void ValidateProposalNamesAndAssign(Proposal[] proposals)
     {
         Assert(proposals.Length > 1, "Please provide at least 2 proposals");
-
-        //TODO: check if proposal is not null or empty;
-
         this.Proposals = proposals;
     }
+
+    /// <summary>
+    /// Gets voter detail.
+    /// </summary>
+    /// <param name="address">The voter wallet address.</param>
+    /// <returns>Voter struct</returns>
     private Voter GetVoter(Address address) => PersistentState.GetStruct<Voter>($"voter:{address}");
+
+    /// <summary>
+    /// Sets the struct of voter detail.
+    /// </summary>
+    /// <param name="address">The voter wallet address.</param>
+    /// <param name="voter">Voter struct</param>
     private void SetVoter(Address address, Voter voter) => PersistentState.SetStruct($"voter:{address}", voter);
+
+    /// <summary>
+    /// Provide voting right to a voter to vote on this ballot.
+    /// </summary>
+    /// <param name="voterAddress">The voter wallet address.</param>
+    /// <returns>Boolean flag value.</returns>
     public bool GiveRightToVote(Address voterAddress)
     {
         Assert(Message.Sender == ChairPerson, "Only chairperson can give right to vote.");
@@ -46,11 +84,15 @@ public class Ballot : SmartContract
 
         return true;
     }
+
+    /// <summary>
+    ///  Give your vote to proposal.
+    /// </summary>
+    /// <param name="proposalId">Proposal index of proposal in the proposals array.</param>
+    /// <returns>Boolean flag value.</returns>
     public bool Vote(uint proposalId)
     {
         var voter = this.GetVoter(Message.Sender);
-
-        //TODO: check if proposal id is not present
 
         Assert(voter.Weight == 1, "Has no right to vote.");
 
@@ -60,11 +102,21 @@ public class Ballot : SmartContract
         voter.VoteProposalIndex = proposalId;
 
         Proposals[proposalId].VoteCount += voter.Weight;
-
-        //TODO: add event
+        
+        Log(new Voter
+        {
+            Voted = true,
+            Weight = 1,
+            VoteProposalIndex = proposalId
+        });
 
         return true;
     }
+
+    /// <summary>
+    /// Computes the winning proposal taking all previous votes into account.
+    /// </summary>
+    /// <returns>Id(index) of the winning proposal.</returns>
     public uint WinningProposal()
     {
         uint winningVoteCount = 0;
@@ -72,7 +124,7 @@ public class Ballot : SmartContract
 
         for (uint i = 0; i < Proposals.Length; i++)
         {
-            if(Proposals[i].VoteCount > winningVoteCount)
+            if (Proposals[i].VoteCount > winningVoteCount)
             {
                 winningVoteCount = Proposals[i].VoteCount;
                 winningProposalId = i;
@@ -81,28 +133,45 @@ public class Ballot : SmartContract
 
         return winningProposalId;
     }
+    
+    /// <summary>
+    /// Gets name of the winning proposal.
+    /// </summary>
+    /// <returns>Name of the winning proposal.</returns>
     public string WinnerName()
     {
         var winningProposalId = WinningProposal();
         var proposals = Proposals[winningProposalId];
         return proposals.Name;
     }
+
     public struct Proposal
     {
+        /// <summary>
+        /// Name of the proposal.
+        /// </summary>
         public string Name;
-        public uint VoteCount;        
+
+        /// <summary>
+        /// Total vote received for the proposal.
+        /// </summary>
+        public uint VoteCount;
     }
     public struct Voter
     {
+        /// <summary>
+        /// Voting weight of the voter.
+        /// </summary>
         public uint Weight;
+
+        /// <summary>
+        /// Is the voter voted
+        /// </summary>
         public bool Voted;
+
+        /// <summary>
+        /// Proposal index of the vote.
+        /// </summary>
         public uint VoteProposalIndex;
-    }
-    struct ElectionResult
-    {
-        [Index]
-        public uint CandidateId;
-        public string CandidateName;
-        public uint VoteCount;
     }
 }
