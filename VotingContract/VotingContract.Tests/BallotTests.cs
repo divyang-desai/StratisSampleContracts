@@ -50,10 +50,10 @@ namespace VotingContract.Tests
             this.voter3 = "0x0000000000000000000000000000000000000030".HexToAddress();
         }
 
-        public (Ballot, Proposal[]) CreateContract()
+        private (Ballot, Proposal[]) CreateContract()
         {
             var proposals = new[]
-           {
+            {
                 new Proposal { Name = "Joe Biden",  VoteCount = 0 },
                 new Proposal { Name = "Donald Trump",  VoteCount = 0 }
             };
@@ -65,7 +65,7 @@ namespace VotingContract.Tests
             return (contract, proposals);
         }
 
-        public Voter NewVoter()
+        private Voter NewVoter()
         {
             return new Voter()
             {
@@ -84,6 +84,17 @@ namespace VotingContract.Tests
         }
 
         [Fact]
+        public void Constructor_Fails_If_No_Proposals()
+        {
+            var proposal = new Proposal[] { };
+
+            this.mockContractState.Setup(m => m.Message).Returns(new Message(this.contract, this.chairPerson, 0));
+            this.mockPersistentState.Setup(s => s.GetArray<Proposal>(nameof(Ballot.Proposals))).Returns(proposal);
+
+            Assert.ThrowsAny<SmartContractAssertException>(() => new Ballot(this.mockContractState.Object, this.serializer.Serialize(proposal)));
+        }
+
+        [Fact]
         public void GiveRightToVote_Success()
         {
             this.mockPersistentState.Setup(s => s.GetAddress(nameof(Ballot.ChairPerson))).Returns(this.chairPerson);
@@ -96,7 +107,48 @@ namespace VotingContract.Tests
         }
 
         [Fact]
-        public void Vote1_Vote_Success()
+        public void GiveRightToVote_Fails_If_Sender_Is_Not_Chairperson()
+        {
+            this.mockPersistentState.Setup(s => s.GetAddress(nameof(Ballot.ChairPerson))).Returns(this.voter1);
+            this.mockPersistentState.Setup(s => s.GetStruct<Voter>($"voter:{this.voter1}")).Returns(default(Voter));
+
+            var (contract, proposals) = this.CreateContract();
+
+            Assert.ThrowsAny<SmartContractAssertException>(() => contract.GiveRightToVote(this.voter1));
+            this.mockPersistentState.Verify(s => s.SetStruct($"voter:{this.voter1}", this.NewVoter()), Times.Never);
+
+        }
+
+        [Fact]
+        public void GiveRightToVote_Fails_If_Voter_Has_Already_Right()
+        {
+            this.mockPersistentState.Setup(s => s.GetAddress(nameof(Ballot.ChairPerson))).Returns(this.chairPerson);
+            this.mockPersistentState.Setup(s => s.GetStruct<Voter>($"voter:{this.voter1}")).Returns(this.NewVoter());
+
+            var (contract, proposals) = this.CreateContract();
+
+            Assert.ThrowsAny<SmartContractAssertException>(() => contract.GiveRightToVote(this.voter1));
+            this.mockPersistentState.Verify(s => s.SetStruct($"voter:{this.voter1}", this.NewVoter()), Times.Never);
+        }
+
+        [Fact]
+        public void GiveRightToVote_Fails_If_Voter_Already_Voted()
+        {
+            var newVoter = this.NewVoter();
+            newVoter.Weight = 0;
+            newVoter.Voted = true;
+
+            this.mockPersistentState.Setup(s => s.GetAddress(nameof(Ballot.ChairPerson))).Returns(this.chairPerson);
+            this.mockPersistentState.Setup(s => s.GetStruct<Voter>($"voter:{this.voter1}")).Returns(newVoter);
+
+            var (contract, proposals) = this.CreateContract();
+
+            Assert.ThrowsAny<SmartContractAssertException>(() => contract.GiveRightToVote(this.voter1));
+            this.mockPersistentState.Verify(s => s.SetStruct($"voter:{this.voter1}", this.NewVoter()), Times.Never);
+        }
+
+        [Fact]
+        public void Vote_Success()
         {
             this.mockPersistentState.Setup(s => s.GetStruct<Voter>($"voter:{this.voter1}")).Returns(this.NewVoter());
 
@@ -112,61 +164,61 @@ namespace VotingContract.Tests
         [Fact]
         public void WinningProposal_Success()
         {
-            uint proposalIndexForVoter1 = 0;
-            uint proposalIndexForVoter2 = 0;
-            uint proposalIndexForVoter3 = 1;
+            uint expectedWinningProposalIndex = 0;
+
+            var voter1 = this.NewVoter();
+            voter1.Voted = true;
+            voter1.VoteProposalIndex = 0;
+
+            var voter2 = this.NewVoter();
+            voter2.Voted = true;
+            voter2.VoteProposalIndex = 0;
+
+            var voter3 = this.NewVoter();
+            voter3.Voted = true;
+            voter3.VoteProposalIndex = 1;
+
+            this.mockPersistentState.Setup(s => s.GetStruct<Voter>($"voter:{this.voter1}")).Returns(voter1);
+            this.mockPersistentState.Setup(s => s.GetStruct<Voter>($"voter:{this.voter2}")).Returns(voter2);
+            this.mockPersistentState.Setup(s => s.GetStruct<Voter>($"voter:{this.voter3}")).Returns(voter3);
 
             var (contract, proposals) = this.CreateContract();
 
-            // voter 1 voting
-            this.mockPersistentState.Setup(s => s.GetStruct<Voter>($"voter:{this.voter1}")).Returns(this.NewVoter());
-            this.mockContractState.Setup(s => s.Message.Sender).Returns(this.voter1);
-            var voter1Result = contract.Vote(proposalIndexForVoter1);
-
-            // voter 2 voting
-            this.mockPersistentState.Setup(s => s.GetStruct<Voter>($"voter:{this.voter2}")).Returns(this.NewVoter());
-            this.mockContractState.Setup(s => s.Message.Sender).Returns(this.voter2);
-            var voter2Result = contract.Vote(proposalIndexForVoter2);
-
-            // voter 3 voting
-            this.mockPersistentState.Setup(s => s.GetStruct<Voter>($"voter:{this.voter3}")).Returns(this.NewVoter());
-            this.mockContractState.Setup(s => s.Message.Sender).Returns(this.voter3);
-            var voter3Result = contract.Vote(proposalIndexForVoter3);
-
             var winnerProposalId = contract.WinningProposal();
 
-            Assert.Equal(winnerProposalId, proposalIndexForVoter1);
-            Assert.Equal(winnerProposalId, proposalIndexForVoter2);
+            Assert.Equal(winnerProposalId, expectedWinningProposalIndex);
         }
 
         [Fact]
         public void WinnerName_Success()
         {
-            uint proposalIndexForVoter1 = 0;
-            uint proposalIndexForVoter2 = 0;
-            uint proposalIndexForVoter3 = 1;
+            uint expectedWinningProposalIndex = 0;
+            string expectedWinnerProposalName = "Joe Biden";
+
+            var voter1 = this.NewVoter();
+            voter1.Voted = true;
+            voter1.VoteProposalIndex = 0;
+
+            var voter2 = this.NewVoter();
+            voter2.Voted = true;
+            voter2.VoteProposalIndex = 0;
+
+            var voter3 = this.NewVoter();
+            voter3.Voted = true;
+            voter3.VoteProposalIndex = 1;
+
+            this.mockPersistentState.Setup(s => s.GetStruct<Voter>($"voter:{this.voter1}")).Returns(voter1);
+            this.mockPersistentState.Setup(s => s.GetStruct<Voter>($"voter:{this.voter2}")).Returns(voter2);
+            this.mockPersistentState.Setup(s => s.GetStruct<Voter>($"voter:{this.voter3}")).Returns(voter3);
 
             var (contract, proposals) = this.CreateContract();
 
-            // voter 1 voting
-            this.mockPersistentState.Setup(s => s.GetStruct<Voter>($"voter:{this.voter1}")).Returns(this.NewVoter());
-            this.mockContractState.Setup(s => s.Message.Sender).Returns(this.voter1);
-            var voter1Result = contract.Vote(proposalIndexForVoter1);
-
-            // voter 2 voting
-            this.mockPersistentState.Setup(s => s.GetStruct<Voter>($"voter:{this.voter2}")).Returns(this.NewVoter());
-            this.mockContractState.Setup(s => s.Message.Sender).Returns(this.voter2);
-            var voter2Result = contract.Vote(proposalIndexForVoter2);
-
-            // voter 3 voting
-            this.mockPersistentState.Setup(s => s.GetStruct<Voter>($"voter:{this.voter3}")).Returns(this.NewVoter());
-            this.mockContractState.Setup(s => s.Message.Sender).Returns(this.voter3);
-            var voter3Result = contract.Vote(proposalIndexForVoter3);
+            var winnerProposalId = contract.WinningProposal();
 
             var winnerProposalName = contract.WinnerName();
 
             Assert.NotNull(winnerProposalName);
-            Assert.Equal(winnerProposalName, proposals[proposalIndexForVoter1].Name);
+            Assert.Equal(expectedWinnerProposalName, proposals[expectedWinningProposalIndex].Name);
         }
     }
 }
