@@ -102,6 +102,8 @@ public class Ballot : SmartContract
         voter.VoteProposalIndex = proposalId;
 
         Proposals[proposalId].VoteCount += voter.Weight;
+
+        this.SetVoter(Message.Sender, voter);
         
         Log(new Voter
         {

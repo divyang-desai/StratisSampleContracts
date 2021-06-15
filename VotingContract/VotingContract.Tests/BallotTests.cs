@@ -50,30 +50,6 @@ namespace VotingContract.Tests
             this.voter3 = "0x0000000000000000000000000000000000000030".HexToAddress();
         }
 
-        private (Ballot, Proposal[]) CreateContract()
-        {
-            var proposals = new[]
-            {
-                new Proposal { Name = "Joe Biden",  VoteCount = 0 },
-                new Proposal { Name = "Donald Trump",  VoteCount = 0 }
-            };
-
-            this.mockContractState.Setup(m => m.Message).Returns(new Message(this.contract, this.chairPerson, 0));
-            this.mockPersistentState.Setup(s => s.GetArray<Proposal>(nameof(Ballot.Proposals))).Returns(proposals);
-
-            var contract = new Ballot(this.mockContractState.Object, this.serializer.Serialize(proposals));
-            return (contract, proposals);
-        }
-
-        private Voter NewVoter()
-        {
-            return new Voter()
-            {
-                Voted = false,
-                Weight = 1
-            };
-        }
-
         [Fact]
         public void Constructor_ValidProposals_Success()
         {
@@ -150,6 +126,14 @@ namespace VotingContract.Tests
         [Fact]
         public void Vote_Success()
         {
+            var voter1 = this.NewVoter();
+            var expectedVoterStruct = new Voter
+            {
+                Voted = true,
+                Weight = 1,
+                VoteProposalIndex = 0
+            };
+
             this.mockPersistentState.Setup(s => s.GetStruct<Voter>($"voter:{this.voter1}")).Returns(this.NewVoter());
 
             var (contract, proposals) = this.CreateContract();
@@ -159,6 +143,30 @@ namespace VotingContract.Tests
             var result = contract.Vote(0);
 
             Assert.True(result);
+            this.mockPersistentState.Verify(s => s.SetStruct($"voter:{this.voter1}", expectedVoterStruct), Times.Once);
+            this.mockContractLogger.Verify(x => x.Log(It.IsAny<ISmartContractState>(), expectedVoterStruct), Times.Once);
+        }
+
+        [Fact]
+        public void Vote_Fails_If_Voter_Has_No_Right()
+        {
+            var voter = this.NewVoter();
+            voter.Weight = 0;
+
+            var (contract, proposals) = this.CreateContract();
+            this.mockContractState.Setup(s => s.Message.Sender).Returns(this.voter1);
+
+            Assert.ThrowsAny<SmartContractAssertException>(() => contract.Vote(0));
+        }
+
+        [Fact]
+        public void Vote_Fails_If_Voter_Already_Voted()
+        {
+            var voter = this.NewVoter();
+
+            var (contract, proposals) = this.CreateContract();
+            this.mockContractState.Setup(s => s.Message.Sender).Returns(this.voter1);
+            Assert.ThrowsAny<SmartContractAssertException>(() => contract.Vote(0));
         }
 
         [Fact]
@@ -219,6 +227,30 @@ namespace VotingContract.Tests
 
             Assert.NotNull(winnerProposalName);
             Assert.Equal(expectedWinnerProposalName, proposals[expectedWinningProposalIndex].Name);
+        }
+
+        private (Ballot, Proposal[]) CreateContract()
+        {
+            var proposals = new[]
+            {
+                new Proposal { Name = "Joe Biden",  VoteCount = 0 },
+                new Proposal { Name = "Donald Trump",  VoteCount = 0 }
+            };
+
+            this.mockContractState.Setup(m => m.Message).Returns(new Message(this.contract, this.chairPerson, 0));
+            this.mockPersistentState.Setup(s => s.GetArray<Proposal>(nameof(Ballot.Proposals))).Returns(proposals);
+
+            var contract = new Ballot(this.mockContractState.Object, this.serializer.Serialize(proposals));
+            return (contract, proposals);
+        }
+
+        private Voter NewVoter()
+        {
+            return new Voter()
+            {
+                Voted = false,
+                Weight = 1
+            };
         }
     }
 }
