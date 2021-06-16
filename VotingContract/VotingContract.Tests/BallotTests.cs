@@ -5,12 +5,16 @@ namespace VotingContract.Tests
     using Stratis.SmartContracts;
     using Stratis.SmartContracts.CLR;
     using Stratis.SmartContracts.CLR.Serialization;
+    using Stratis.SmartContracts.Core;
     using Xunit;
+    using Xunit.Abstractions;
     using Proposal = Ballot.Proposal;
     using Voter = Ballot.Voter;
 
     public class BallotTests
     {
+
+        private readonly ITestOutputHelper testOutputHelper;
         private readonly Mock<ISmartContractState> mockContractState;
         private readonly Mock<IPersistentState> mockPersistentState;
         private readonly Mock<IInternalTransactionExecutor> mockInternalExecutor;
@@ -25,8 +29,10 @@ namespace VotingContract.Tests
         private Address voter2;
         private Address voter3;
 
-        public BallotTests()
+        public BallotTests(ITestOutputHelper testOutputHelper)
         {
+            this.testOutputHelper = testOutputHelper;
+
             this.mockContractLogger = new Mock<IContractLogger>();
             this.mockPersistentState = new Mock<IPersistentState>();
             this.mockInternalExecutor = new Mock<IInternalTransactionExecutor>();
@@ -227,6 +233,18 @@ namespace VotingContract.Tests
 
             Assert.NotNull(winnerProposalName);
             Assert.Equal(expectedWinnerProposalName, proposals[expectedWinningProposalIndex].Name);
+        }
+
+        [Fact]
+        public void SerializePraposalAsHexString()
+        {
+            var proposals = new[]
+            {
+                new Proposal { Name = "Joe Biden",  VoteCount = 0 },
+                new Proposal { Name = "Donald Trump",  VoteCount = 0 }
+            };
+
+            this.testOutputHelper.WriteLine(this.serializer.Serialize(proposals).ToHexString());
         }
 
         private (Ballot, Proposal[]) CreateContract()

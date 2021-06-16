@@ -88,7 +88,7 @@ public class Ballot : SmartContract
     /// <summary>
     ///  Give your vote to proposal.
     /// </summary>
-    /// <param name="proposalId">Proposal index of proposal in the proposals array.</param>
+    /// <param name="proposalId">Proposal index from proposals array.</param>
     /// <returns>Boolean flag value.</returns>
     public bool Vote(uint proposalId)
     {
